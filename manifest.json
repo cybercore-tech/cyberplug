@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.darkstardevx.cyberplug",
+  "name": "Cyberplug",
+  "version": "0.2.0",
+  "author": "darkstardevx",
+  "license": "MIT",
+  "description": "Terminal plugin manager for Omarchy — discover, install, enable, and configure Quattro plugins from the bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Cyberplug",
+    "description": "Open the Cyberplug plugin manager",
+    "category": "Utilities",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

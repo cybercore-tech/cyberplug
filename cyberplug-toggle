@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Launch Cyberplug in a floating terminal, bootstrapping the bundled binary
+# when needed. Lives inside the Omarchy plugin checkout — no ~/.local/bin required.
+set -euo pipefail
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WINDOW_TITLE="Cyberplug"
+REPO_SLUG="${CYBERPLUG_REPO:-darkstardevx/cyberplug}"
+BIN_DIR=""
+CYBERPLUG_BIN=""
+
+arch_dir() {
+  case "$(uname -m)" in
+    x86_64 | amd64) echo "linux-x86_64" ;;
+    aarch64 | arm64) echo "linux-aarch64" ;;
+    *) echo "linux-$(uname -m)" ;;
+  esac
+}
+
+notify() {
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Cyberplug" "$1" || true
+  fi
+  echo "cyberplug-toggle: $1" >&2
+}
+
+resolve_bin() {
+  BIN_DIR="$PLUGIN_DIR/bin/$(arch_dir)"
+  CYBERPLUG_BIN="$BIN_DIR/cyberplug"
+}
+
+download_release() {
+  local asset="cyberplug-$(arch_dir)"
+  local url="https://github.com/${REPO_SLUG}/releases/latest/download/${asset}"
+  mkdir -p "$BIN_DIR"
+  local tmp
+  tmp="$(mktemp "$BIN_DIR/.cyberplug.XXXXXX")"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; return 1; }
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$tmp" "$url" || { rm -f "$tmp"; return 1; }
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod +x "$tmp"
+  mv -f "$tmp" "$CYBERPLUG_BIN"
+}
+
+build_from_source() {
+  command -v cargo >/dev/null 2>&1 || return 1
+  mkdir -p "$BIN_DIR"
+  notify "Building cyberplug (first run)…"
+  local staging="$PLUGIN_DIR/.cargo-install"
+  rm -rf "$staging"
+  cargo install \
+    --git "https://github.com/${REPO_SLUG}.git" \
+    --locked \
+    --root "$staging" \
+    --bin cyberplug
+  cp "$staging/bin/cyberplug" "$CYBERPLUG_BIN"
+  chmod +x "$CYBERPLUG_BIN"
+  rm -rf "$staging"
+}
+
+ensure_binary() {
+  resolve_bin
+  if [[ -x "$CYBERPLUG_BIN" ]]; then
+    return 0
+  fi
+
+  notify "Installing cyberplug binary…"
+  if download_release; then
+    return 0
+  fi
+  if build_from_source; then
+    return 0
+  fi
+
+  notify "Could not install cyberplug. Need a bundled binary, a GitHub release asset, or cargo."
+  return 1
+}
+
+focus_existing() {
+  hyprctl dispatch focuswindow "title:^(${WINDOW_TITLE})$" 2>/dev/null | grep -q ok
+}
+
+launch() {
+  local terminal="${TERMINAL:-}"
+  if [[ -z "$terminal" ]]; then
+    for candidate in ghostty alacritty kitty foot; do
+      if command -v "$candidate" >/dev/null 2>&1; then
+        terminal="$candidate"
+        break
+      fi
+    done
+  fi
+
+  case "$terminal" in
+    alacritty)
+      exec setsid uwsm-app -- alacritty --class "$WINDOW_TITLE" --title "$WINDOW_TITLE" -e "$CYBERPLUG_BIN"
+      ;;
+    kitty)
+      exec setsid uwsm-app -- kitty --class "$WINDOW_TITLE" --title "$WINDOW_TITLE" "$CYBERPLUG_BIN"
+      ;;
+    ghostty)
+      exec setsid uwsm-app -- ghostty --title="$WINDOW_TITLE" -e "$CYBERPLUG_BIN"
+      ;;
+    foot)
+      exec setsid uwsm-app -- foot --title="$WINDOW_TITLE" "$CYBERPLUG_BIN"
+      ;;
+    *)
+      exec setsid uwsm-app -- xdg-terminal-exec --title="$WINDOW_TITLE" -e "$CYBERPLUG_BIN"
+      ;;
+  esac
+}
+
+ensure_binary || exit 1
+
+if focus_existing; then
+  exit 0
+fi
+
+launch
