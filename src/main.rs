@@ -25,7 +25,52 @@ fn default_profile_path() -> PathBuf {
         .join(".config/cyberplug/profile.json")
 }
 
+/// Parses argv (skipping argv[0]). Returns whether the caller asked to start
+/// on the Discover screen. Prints usage and exits directly for `--help` or an
+/// unrecognized flag — this all happens before raw mode / the alternate
+/// screen are entered, so it behaves like a normal CLI tool.
+fn parse_args() -> std::result::Result<bool, String> {
+    let mut start_in_discovery = false;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "-d" | "--discover" | "--discovery" => start_in_discovery = true,
+            "-h" | "--help" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            other => {
+                return Err(format!(
+                    "cyberplug: unrecognized argument '{other}'\nRun `cyberplug --help` for usage."
+                ));
+            }
+        }
+    }
+    Ok(start_in_discovery)
+}
+
+fn print_usage() {
+    println!(
+        "cyberplug — terminal plugin manager for Omarchy\n\
+         \n\
+         USAGE:\n\
+         \x20   cyberplug [OPTIONS]\n\
+         \n\
+         OPTIONS:\n\
+         \x20   -d, --discover, --discovery   Start on the Discover screen\n\
+         \x20                                  (default: start on the main plugin list)\n\
+         \x20   -h, --help                    Print this help and exit"
+    );
+}
+
 fn main() -> Result<()> {
+    let start_in_discovery = match parse_args() {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{msg}");
+            std::process::exit(2);
+        }
+    };
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -33,6 +78,14 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = app::App::new()?;
+    if start_in_discovery {
+        // Same queue-then-redraw path the `D` keybinding uses — see
+        // `app::Pending` — so a cold registry cache doesn't look frozen on
+        // startup either.
+        app.mode = Mode::Discovery;
+        app.status = Some("loading registry...".to_string());
+        app.pending = Some(Pending::LoadDiscovery(false));
+    }
     let result = run(&mut terminal, &mut app);
 
     disable_raw_mode()?;
