@@ -6,6 +6,8 @@ configure, and profile your plugins without leaving the keyboard.
 Ships as an Omarchy bar widget. One command installs the widget **and** the
 manager binary.
 
+![cyberplug main screen](preview.png)
+
 ## Install
 
 ```bash
