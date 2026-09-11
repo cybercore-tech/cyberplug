@@ -9,7 +9,7 @@ mod settings;
 mod ui;
 
 use anyhow::Result;
-use app::Mode;
+use app::{Mode, Pending};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -49,6 +49,21 @@ fn main() -> Result<()> {
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut app::App) -> Result<()> {
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
+
+        // Run any deferred blocking work (registry/description fetches, plugin
+        // installs) *after* the frame above already painted the "loading…"
+        // state the key handler set, then loop straight back to repaint with
+        // the result — never block on the next keypress in between, so the
+        // UI never looks like it dropped something (e.g. the Discovery tabs)
+        // while a network call was in flight.
+        if let Some(work) = app.pending.take() {
+            app.perform(work)?;
+            continue;
+        }
+
+        if app.should_quit {
+            return Ok(());
+        }
 
         if let Event::Key(key) = event::read()? {
             match app.mode {
@@ -128,8 +143,7 @@ fn handle_normal(app: &mut app::App, code: KeyCode) -> Result<()> {
         KeyCode::Char('D') => {
             app.mode = Mode::Discovery;
             app.status = Some("loading registry...".to_string());
-            app.load_discovery(false)?;
-            app.status = Some(format!("{} plugins available", app.discovery_sources.len()));
+            app.pending = Some(Pending::LoadDiscovery(false));
         }
         KeyCode::Char('P') => {
             app.mode = Mode::Profile;
@@ -339,42 +353,12 @@ fn handle_discovery(app: &mut app::App, code: KeyCode) -> Result<()> {
         }
         KeyCode::Char('r') => {
             app.status = Some("refreshing registry...".to_string());
-            app.load_discovery(true)?;
-            app.status = Some(format!("{} plugins available", app.discovery_sources.len()));
+            app.pending = Some(Pending::LoadDiscovery(true));
         }
         KeyCode::Enter => {
-            if let Some(source) = app.discovery_sources.get(app.discovery_selected).cloned() {
+            if let Some(source) = app.discovery_sources.get(app.discovery_selected) {
                 app.status = Some(format!("installing {}...", source.name));
-                match omarchy::add(&source.repo, false) {
-                    Ok(_) => {
-                        app.refresh()?;
-                        // Only route into placement if the plugin actually
-                        // registered as a bar widget under this id — a repo
-                        // can install without exposing that exact id (e.g.
-                        // suite repos where the id we showed doesn't map
-                        // 1:1 to what got installed).
-                        if app.plugins.iter().any(|e| e.plugin.id == source.id) {
-                            app.selected = app
-                                .filtered
-                                .iter()
-                                .position(|&i| app.plugins[i].plugin.id == source.id)
-                                .unwrap_or(0);
-                            app.mode = Mode::Placement;
-                            app.placement_selected = 1;
-                            app.status =
-                                Some(format!("{} installed — choose bar placement", source.name));
-                        } else {
-                            app.status = Some(format!(
-                                "{} installed but not found as '{}' — check `omarchy plugin list` and enable manually",
-                                source.name, source.id
-                            ));
-                        }
-                        app.load_discovery(false)?;
-                    }
-                    Err(e) => {
-                        app.status = Some(format!("error: {}", e));
-                    }
-                }
+                app.pending = Some(Pending::InstallDiscoverySelected);
             }
         }
         _ => {}

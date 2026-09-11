@@ -26,6 +26,16 @@ pub enum Mode {
     ProfilePath,
 }
 
+/// Blocking work (network I/O or a shell-out) deferred by one redraw so the
+/// UI always paints the "loading…" state the caller set *before* the work
+/// runs, instead of appearing frozen for however long the call takes. See
+/// `App::perform` and the main loop in `main.rs`.
+pub enum Pending {
+    LoadDiscovery(bool),
+    LoadDescription,
+    InstallDiscoverySelected,
+}
+
 pub struct App {
     pub plugins: Vec<PluginEntry>,
     pub filtered: Vec<usize>,
@@ -47,6 +57,7 @@ pub struct App {
     pub discovery_category_index: usize,
     pub discovery_desc_cache: HashMap<String, Option<String>>,
     pub profile_exporting: bool,
+    pub pending: Option<Pending>,
 }
 
 impl App {
@@ -75,6 +86,7 @@ impl App {
             discovery_category_index: 0,
             discovery_desc_cache: HashMap::new(),
             profile_exporting: true,
+            pending: None,
         })
     }
 
@@ -129,7 +141,26 @@ impl App {
         self.selected_entry().map(|e| e.plugin.id.clone())
     }
 
-    pub fn load_discovery(&mut self, force_refresh: bool) -> Result<()> {
+    /// Runs one piece of deferred blocking work. Called from the main loop
+    /// right after it repaints the "loading…" state the key handler set, so
+    /// the UI never appears to freeze or drop something (e.g. the Discovery
+    /// tabs) — see the module doc on `Pending`.
+    pub fn perform(&mut self, work: Pending) -> Result<()> {
+        match work {
+            Pending::LoadDiscovery(force_refresh) => {
+                self.load_discovery(force_refresh)?;
+                self.status = Some(format!(
+                    "{} plugins available",
+                    self.discovery_sources.len()
+                ));
+            }
+            Pending::LoadDescription => self.fetch_discovery_description(),
+            Pending::InstallDiscoverySelected => self.install_discovery_selected()?,
+        }
+        Ok(())
+    }
+
+    fn load_discovery(&mut self, force_refresh: bool) -> Result<()> {
         let installed: HashSet<&str> = self.plugins.iter().map(|e| e.plugin.id.as_str()).collect();
         let all = discovery::fetch(force_refresh)?;
         self.discovery_all = all
@@ -148,7 +179,6 @@ impl App {
         self.discovery_category_index = 0;
 
         self.apply_discovery_filter();
-        self.ensure_discovery_description();
         Ok(())
     }
 
@@ -167,7 +197,7 @@ impl App {
                 .collect();
         }
         self.discovery_selected = 0;
-        self.ensure_discovery_description();
+        self.queue_description_if_needed();
     }
 
     pub fn discovery_cycle_category(&mut self) {
@@ -180,7 +210,7 @@ impl App {
         if !self.discovery_sources.is_empty() {
             self.discovery_selected = (self.discovery_selected + 1) % self.discovery_sources.len();
         }
-        self.ensure_discovery_description();
+        self.queue_description_if_needed();
     }
 
     pub fn discovery_previous(&mut self) {
@@ -191,25 +221,77 @@ impl App {
                 self.discovery_selected - 1
             };
         }
-        self.ensure_discovery_description();
+        self.queue_description_if_needed();
     }
 
-    /// Lazily fetches a real description for the currently-selected
-    /// discovery entry if the registry didn't already provide one and
-    /// we haven't tried before. One network call, only for what's on
-    /// screen right now — never pre-fetches the whole list.
-    pub fn ensure_discovery_description(&mut self) {
+    /// True if the currently-selected discovery entry has no description yet
+    /// and fetching one would need a network call we haven't already made.
+    fn discovery_needs_description(&self) -> bool {
+        let Some(source) = self.discovery_sources.get(self.discovery_selected) else {
+            return false;
+        };
+        source.description.is_none() && !self.discovery_desc_cache.contains_key(&source.repo)
+    }
+
+    /// Queues one deferred network call for the on-screen entry's
+    /// description, only when it's actually missing — never pre-fetches the
+    /// whole list, and never blocks the caller.
+    fn queue_description_if_needed(&mut self) {
+        if self.discovery_needs_description() {
+            self.pending = Some(Pending::LoadDescription);
+        }
+    }
+
+    /// The actual (blocking) description fetch. Only reached via
+    /// `perform(Pending::LoadDescription)`, one redraw after the caller
+    /// asked for it.
+    fn fetch_discovery_description(&mut self) {
         let Some(source) = self.discovery_sources.get(self.discovery_selected).cloned() else {
             return;
         };
-        if source.description.is_some() {
-            return;
-        }
-        if self.discovery_desc_cache.contains_key(&source.repo) {
+        if source.description.is_some() || self.discovery_desc_cache.contains_key(&source.repo) {
             return;
         }
         let desc = discovery::fetch_repo_description(&source.repo);
         self.discovery_desc_cache.insert(source.repo.clone(), desc);
+    }
+
+    /// Installs the selected Discover entry via `omarchy plugin add` and, if
+    /// it registered as a bar widget under the shown id, routes into
+    /// placement. Only reached via `perform(Pending::InstallDiscoverySelected)`.
+    fn install_discovery_selected(&mut self) -> Result<()> {
+        let Some(source) = self.discovery_sources.get(self.discovery_selected).cloned() else {
+            return Ok(());
+        };
+        match omarchy::add(&source.repo, false) {
+            Ok(_) => {
+                self.refresh()?;
+                // Only route into placement if the plugin actually registered
+                // as a bar widget under this id — a repo can install without
+                // exposing that exact id (e.g. suite repos where the id we
+                // showed doesn't map 1:1 to what got installed).
+                if self.plugins.iter().any(|e| e.plugin.id == source.id) {
+                    self.selected = self
+                        .filtered
+                        .iter()
+                        .position(|&i| self.plugins[i].plugin.id == source.id)
+                        .unwrap_or(0);
+                    self.mode = Mode::Placement;
+                    self.placement_selected = 1;
+                    self.status = Some(format!("{} installed — choose bar placement", source.name));
+                } else {
+                    self.status = Some(format!(
+                        "{} installed but not found as '{}' — check `omarchy plugin list` and enable manually",
+                        source.name, source.id
+                    ));
+                }
+                self.pending = Some(Pending::LoadDiscovery(false));
+            }
+            Err(e) => {
+                self.status = Some(format!("error: {}", e));
+            }
+        }
+        Ok(())
     }
 
     pub fn discovery_description(&self) -> Option<String> {
