@@ -15,4 +15,15 @@ cargo fmt --all
 # contains the formatted code.
 git add -A
 
+# Keep the dev-convenience ~/.local/bin/cyberplug copy (installed via
+# `install.sh --local-bin`) in sync with what's actually being committed, so
+# it can't quietly go stale (e.g. missing a just-added CLI flag) the way
+# bin/<arch>/ getting rebuilt without --local-bin let it drift before.
+# Only runs if that copy already exists — this never installs it for you.
+if [ -x "$HOME/.local/bin/cyberplug" ]; then
+  echo "Refreshing ~/.local/bin/cyberplug..."
+  ./install.sh --local-bin >/dev/null
+  echo "  -> ~/.local/bin/cyberplug is up to date with this commit"
+fi
+
 exit 0
