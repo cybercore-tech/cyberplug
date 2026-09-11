@@ -111,6 +111,7 @@ That rebuilds a release binary into `bin/linux-$(arch)/cyberplug` (and optionall
 - [docs/SETTINGS.md](docs/SETTINGS.md)
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 - [SECURITY.md](SECURITY.md) — how to report a vulnerability
+- [STATEMENT.md](STATEMENT.md) — how this project is built, AI's role in it
 
 ## Requirements
 
