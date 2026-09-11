@@ -15,8 +15,10 @@ omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable
 Click the plug icon on the bar. That's it.
 
 The plugin checkout includes a bundled `cyberplug` binary for `linux-x86_64`.
-On other architectures the launcher downloads a GitHub release asset, or builds
-from source with `cargo` if needed.
+On other architectures, the launcher builds this same checkout's source with
+`cargo build --locked` the first time you click it (cached under `bin/` after)
+if `cargo` is available — it never downloads or executes a prebuilt artifact
+from the network.
 
 ## Remove
 
@@ -87,8 +89,10 @@ That rebuilds a release binary into `bin/linux-$(arch)/cyberplug` (and optionall
 
 ## Requirements
 
-Omarchy with the Quattro shell. Internet optional after install on x86_64
-(bundled binary). Discover needs network (falls back to the last cached registry).
+Omarchy with the Quattro shell. No network needed to launch on `linux-x86_64`
+(bundled binary); other architectures need `cargo`/Rust installed once to
+build this checkout's own source on first launch. Discover needs network
+(falls back to the last cached registry).
 
 ## License
 

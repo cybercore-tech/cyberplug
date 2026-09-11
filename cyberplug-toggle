@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
-# Launch Cyberplug in a floating terminal, bootstrapping the bundled binary
-# when needed. Lives inside the Omarchy plugin checkout — no ~/.local/bin required.
+# Launch Cyberplug in a floating terminal, bootstrapping a binary when
+# needed. Lives inside the Omarchy plugin checkout — no ~/.local/bin required.
+#
+# Deliberately does NOT fetch or execute a remote build artifact: no
+# download-then-chmod-then-run of a release asset, and no
+# `cargo install --git <remote>`. Those are exactly the patterns the Omarchy
+# plugin marketplace's Automated Security Baseline flags on sight. Instead:
+#   1. use the bundled bin/<arch>/cyberplug shipped in this checkout, or
+#   2. build THIS checkout's own already-cloned source with `cargo build
+#      --locked` (no new code is fetched — it's the same commit the manifest
+#      and this script came from), caching the result for next time, or
+#   3. tell the user how to get a binary themselves.
 set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WINDOW_TITLE="Cyberplug"
-REPO_SLUG="${CYBERPLUG_REPO:-darkstardevx/cyberplug}"
 BIN_DIR=""
 CYBERPLUG_BIN=""
 
@@ -29,38 +38,23 @@ resolve_bin() {
   CYBERPLUG_BIN="$BIN_DIR/cyberplug"
 }
 
-download_release() {
-  local asset="cyberplug-$(arch_dir)"
-  local url="https://github.com/${REPO_SLUG}/releases/latest/download/${asset}"
+# Build this checkout's own source (not a remote fetch) and cache the result
+# under bin/<arch>/ so this only happens once per architecture.
+build_from_local_source() {
+  command -v cargo >/dev/null 2>&1 || return 1
+  [[ -f "$PLUGIN_DIR/Cargo.toml" && -f "$PLUGIN_DIR/Cargo.lock" ]] || return 1
   mkdir -p "$BIN_DIR"
-  local tmp
-  tmp="$(mktemp "$BIN_DIR/.cyberplug.XXXXXX")"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; return 1; }
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$tmp" "$url" || { rm -f "$tmp"; return 1; }
-  else
-    rm -f "$tmp"
+  notify "Building cyberplug for $(arch_dir) (first run)…"
+  local build_dir="$PLUGIN_DIR/.cargo-build"
+  rm -rf "$build_dir"
+  if ! CARGO_TARGET_DIR="$build_dir" cargo build --release --locked \
+    --manifest-path "$PLUGIN_DIR/Cargo.toml"; then
+    rm -rf "$build_dir"
     return 1
   fi
-  chmod +x "$tmp"
-  mv -f "$tmp" "$CYBERPLUG_BIN"
-}
-
-build_from_source() {
-  command -v cargo >/dev/null 2>&1 || return 1
-  mkdir -p "$BIN_DIR"
-  notify "Building cyberplug (first run)…"
-  local staging="$PLUGIN_DIR/.cargo-install"
-  rm -rf "$staging"
-  cargo install \
-    --git "https://github.com/${REPO_SLUG}.git" \
-    --locked \
-    --root "$staging" \
-    --bin cyberplug
-  cp "$staging/bin/cyberplug" "$CYBERPLUG_BIN"
+  cp "$build_dir/release/cyberplug" "$CYBERPLUG_BIN"
   chmod +x "$CYBERPLUG_BIN"
-  rm -rf "$staging"
+  rm -rf "$build_dir"
 }
 
 ensure_binary() {
@@ -69,15 +63,13 @@ ensure_binary() {
     return 0
   fi
 
-  notify "Installing cyberplug binary…"
-  if download_release; then
-    return 0
-  fi
-  if build_from_source; then
+  if build_from_local_source; then
     return 0
   fi
 
-  notify "Could not install cyberplug. Need a bundled binary, a GitHub release asset, or cargo."
+  notify "No cyberplug binary for $(arch_dir) and no cargo available to build one. \
+Install Rust (https://rustup.rs), or download a release asset from \
+https://github.com/darkstardevx/cyberplug/releases and place it at: $CYBERPLUG_BIN"
   return 1
 }
 
