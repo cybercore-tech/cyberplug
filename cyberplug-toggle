@@ -31,6 +31,7 @@ require_cmd() {
 }
 
 arch_dir() {
+  require_cmd uname || { echo "unknown"; return; }
   case "$(uname -m)" in
     x86_64 | amd64) echo "linux-x86_64" ;;
     aarch64 | arm64) echo "linux-aarch64" ;;
@@ -68,6 +69,7 @@ bin_dir_is_trusted() {
 build_from_local_source() {
   require_cmd cargo || return 1
   require_cmd mkdir || return 1
+  require_cmd cp || return 1
   require_cmd chmod || return 1
   require_cmd mv || return 1
   require_cmd rm || return 1
