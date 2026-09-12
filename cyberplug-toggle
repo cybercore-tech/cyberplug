@@ -69,6 +69,7 @@ bin_dir_is_trusted() {
 build_from_local_source() {
   require_cmd cargo || return 1
   require_cmd mkdir || return 1
+  require_cmd mktemp || return 1
   require_cmd cp || return 1
   require_cmd chmod || return 1
   require_cmd mv || return 1
@@ -90,7 +91,13 @@ build_from_local_source() {
     return 1
   fi
 
-  local tmp_bin="$CYBERPLUG_BIN.tmp.$$"
+  # mktemp, not a PID-suffixed name: PIDs recycle and are guessable, so a
+  # fixed `tmp.$$` pattern is a predictable path an attacker racing this
+  # script could pre-create (e.g. as a symlink) before we do. mktemp
+  # creates the file itself, atomically, with a name nothing else could
+  # have predicted in advance.
+  local tmp_bin
+  tmp_bin="$(mktemp "$CYBERPLUG_BIN.XXXXXX")" || return 1
   cp "$build_dir/release/cyberplug" "$tmp_bin"
   chmod +x "$tmp_bin"
   mv -f "$tmp_bin" "$CYBERPLUG_BIN"
