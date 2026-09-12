@@ -6,17 +6,29 @@
 # download-then-chmod-then-run of a release asset, and no
 # `cargo install --git <remote>`. Those are exactly the patterns the Omarchy
 # plugin marketplace's Automated Security Baseline flags on sight. Instead:
-#   1. use the bundled bin/<arch>/cyberplug shipped in this checkout, or
-#   2. build THIS checkout's own already-cloned source with `cargo build
-#      --locked` (no new code is fetched — it's the same commit the manifest
-#      and this script came from), caching the result for next time, or
-#   3. tell the user how to get a binary themselves.
+#   1. build THIS checkout's own already-cloned source with `cargo build
+#      --locked` (locked to Cargo.lock, so no *source* other than this
+#      checkout's own commit is ever pulled in — though on a cold cargo
+#      cache it will still fetch the pinned dependency crates from
+#      crates.io/index, same as any other `cargo build` does), caching the
+#      resulting binary under bin/<arch>/ so this only happens once per
+#      architecture, or
+#   2. tell the user how to get a binary themselves.
 set -euo pipefail
 
-PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 WINDOW_TITLE="Cyberplug"
 BIN_DIR=""
 CYBERPLUG_BIN=""
+
+# Fail loudly on a missing/hijacked tool instead of silently doing nothing
+# (or something unintended) with whatever happens to be on PATH.
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "cyberplug-toggle: required command not found: $1" >&2
+    return 1
+  }
+}
 
 arch_dir() {
   case "$(uname -m)" in
@@ -38,12 +50,35 @@ resolve_bin() {
   CYBERPLUG_BIN="$BIN_DIR/cyberplug"
 }
 
+# A previously cached build only counts if it's really where we expect it —
+# guards against $PLUGIN_DIR/bin having been replaced with a symlink
+# pointing somewhere unexpected between resolve_bin() and the check.
+bin_dir_is_trusted() {
+  [[ -d "$BIN_DIR" ]] || return 1
+  local real_bin_dir real_plugin_dir
+  real_bin_dir="$(cd "$BIN_DIR" && pwd -P)" || return 1
+  real_plugin_dir="$(cd "$PLUGIN_DIR" && pwd -P)" || return 1
+  [[ "$real_bin_dir" == "$real_plugin_dir"/bin/* ]]
+}
+
 # Build this checkout's own source (not a remote fetch) and cache the result
-# under bin/<arch>/ so this only happens once per architecture.
+# under bin/<arch>/ so this only happens once per architecture. Builds to a
+# temp file first and renames it into place atomically, so a launch that
+# races the build never sees (or execs) a half-written binary.
 build_from_local_source() {
-  command -v cargo >/dev/null 2>&1 || return 1
+  require_cmd cargo || return 1
+  require_cmd mkdir || return 1
+  require_cmd chmod || return 1
+  require_cmd mv || return 1
+  require_cmd rm || return 1
   [[ -f "$PLUGIN_DIR/Cargo.toml" && -f "$PLUGIN_DIR/Cargo.lock" ]] || return 1
+
   mkdir -p "$BIN_DIR"
+  bin_dir_is_trusted || {
+    echo "cyberplug-toggle: refusing to build — $BIN_DIR is not inside $PLUGIN_DIR/bin" >&2
+    return 1
+  }
+
   notify "Building cyberplug for $(arch_dir) (first run)…"
   local build_dir="$PLUGIN_DIR/.cargo-build"
   rm -rf "$build_dir"
@@ -52,14 +87,17 @@ build_from_local_source() {
     rm -rf "$build_dir"
     return 1
   fi
-  cp "$build_dir/release/cyberplug" "$CYBERPLUG_BIN"
-  chmod +x "$CYBERPLUG_BIN"
+
+  local tmp_bin="$CYBERPLUG_BIN.tmp.$$"
+  cp "$build_dir/release/cyberplug" "$tmp_bin"
+  chmod +x "$tmp_bin"
+  mv -f "$tmp_bin" "$CYBERPLUG_BIN"
   rm -rf "$build_dir"
 }
 
 ensure_binary() {
   resolve_bin
-  if [[ -x "$CYBERPLUG_BIN" ]]; then
+  if [[ -x "$CYBERPLUG_BIN" ]] && bin_dir_is_trusted; then
     return 0
   fi
 
@@ -74,11 +112,20 @@ https://github.com/darkstardevx/cyberplug/releases and place it at: $CYBERPLUG_B
 }
 
 focus_existing() {
+  require_cmd hyprctl || return 1
+  require_cmd grep || return 1
   hyprctl dispatch focuswindow "title:^(${WINDOW_TITLE})$" 2>/dev/null | grep -q ok
 }
 
 launch() {
+  require_cmd setsid || return 1
+  require_cmd uwsm-app || return 1
+
   local terminal="${TERMINAL:-}"
+  if [[ -n "$terminal" ]] && ! command -v "$terminal" >/dev/null 2>&1; then
+    echo "cyberplug-toggle: \$TERMINAL=$terminal not found on PATH, falling back to auto-detect" >&2
+    terminal=""
+  fi
   if [[ -z "$terminal" ]]; then
     for candidate in ghostty alacritty kitty foot; do
       if command -v "$candidate" >/dev/null 2>&1; then
@@ -102,6 +149,7 @@ launch() {
       exec setsid uwsm-app -- foot --title="$WINDOW_TITLE" "$CYBERPLUG_BIN"
       ;;
     *)
+      require_cmd xdg-terminal-exec || return 1
       exec setsid uwsm-app -- xdg-terminal-exec --title="$WINDOW_TITLE" -e "$CYBERPLUG_BIN"
       ;;
   esac

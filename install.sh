@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# Developer rebuild — Omarchy users should prefer:
+# Developer/CLI helper — builds a release binary and optionally installs it
+# to ~/.local/bin for running `cyberplug` outside the Omarchy bar widget.
+#
+# The bar widget itself does NOT need this: cyberplug-toggle builds and
+# caches its own binary under bin/<arch>/ on first launch. Omarchy users
+# should just do:
 #   omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$ROOT"
 
 echo "Building cyberplug (release)..."
-cargo build --release
+cargo build --release --locked
 
 if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
   BIN_SRC="${CARGO_TARGET_DIR}/release/cyberplug"
@@ -23,25 +28,16 @@ if [[ ! -f "$BIN_SRC" ]]; then
   exit 1
 fi
 
-case "$(uname -m)" in
-  x86_64 | amd64) ARCH_DIR="linux-x86_64" ;;
-  aarch64 | arm64) ARCH_DIR="linux-aarch64" ;;
-  *) ARCH_DIR="linux-$(uname -m)" ;;
-esac
-
-PLUGIN_BIN_DIR="$ROOT/bin/$ARCH_DIR"
-mkdir -p "$PLUGIN_BIN_DIR"
-strip -o "$PLUGIN_BIN_DIR/cyberplug" "$BIN_SRC" 2>/dev/null \
-  || cp "$BIN_SRC" "$PLUGIN_BIN_DIR/cyberplug"
-chmod +x "$PLUGIN_BIN_DIR/cyberplug"
-echo "Bundled plugin binary → $PLUGIN_BIN_DIR/cyberplug"
+echo "Built → $BIN_SRC"
 
 if [[ "${1:-}" == "--local-bin" ]]; then
   mkdir -p "$HOME/.local/bin"
-  cp "$PLUGIN_BIN_DIR/cyberplug" "$HOME/.local/bin/cyberplug"
-  chmod +x "$HOME/.local/bin/cyberplug"
-  echo "Also installed → $HOME/.local/bin/cyberplug"
+  tmp_bin="$HOME/.local/bin/cyberplug.tmp.$$"
+  cp "$BIN_SRC" "$tmp_bin"
+  chmod +x "$tmp_bin"
+  mv -f "$tmp_bin" "$HOME/.local/bin/cyberplug"
+  echo "Installed → $HOME/.local/bin/cyberplug"
 fi
 
-echo "Done. Omarchy install:"
+echo "Done. Omarchy bar widget install:"
 echo "  omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable"

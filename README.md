@@ -14,13 +14,10 @@ manager binary.
 omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable
 ```
 
-Click the plug icon on the bar. That's it.
-
-The plugin checkout includes a bundled `cyberplug` binary for `linux-x86_64`.
-On other architectures, the launcher builds this same checkout's source with
-`cargo build --locked` the first time you click it (cached under `bin/` after)
-if `cargo` is available — it never downloads or executes a prebuilt artifact
-from the network.
+Click the plug icon on the bar. The first click builds this same checkout's
+source with `cargo build --locked` (needs Rust — see [Requirements](#requirements)),
+caching the resulting binary under `bin/<arch>/` so every click after that is
+instant. It never downloads or executes a prebuilt artifact from the network.
 
 ## Remove
 
@@ -31,7 +28,7 @@ omarchy plugin remove io.github.darkstardevx.cyberplug
 ## Use
 
 ```bash
-cyberplug              # optional: run the TUI from any terminal after copying the binary
+cyberplug              # optional: run the TUI from any terminal (see Developer install below)
 cyberplug --discover   # jump straight to the Discover screen instead of the main list
 ```
 
@@ -96,16 +93,17 @@ Every action shells out to the real `omarchy plugin` CLI. cyberplug reads
 `omarchy plugin catalog` and calls `enable` / `disable` / `add` / `remove` /
 `update` for state changes.
 
-## Developer install (rebuild binary)
+## Developer install (CLI use outside the bar)
 
 ```bash
 git clone https://github.com/darkstardevx/cyberplug.git
 cd cyberplug
-./install.sh
+./install.sh --local-bin
 ```
 
-That rebuilds a release binary into `bin/linux-$(arch)/cyberplug` (and optionally
-`~/.local/bin` for CLI use outside the bar).
+That builds a release binary and installs it to `~/.local/bin/cyberplug`.
+The bar widget doesn't need this — it builds and caches its own binary
+under `bin/<arch>/` on first click.
 
 ## Docs
 
@@ -117,10 +115,10 @@ That rebuilds a release binary into `bin/linux-$(arch)/cyberplug` (and optionall
 
 ## Requirements
 
-Omarchy with the Quattro shell. No network needed to launch on `linux-x86_64`
-(bundled binary); other architectures need `cargo`/Rust installed once to
-build this checkout's own source on first launch. Discover needs network
-(falls back to the last cached registry).
+Omarchy with the Quattro shell, and `cargo`/Rust installed once to build this
+checkout's own source on first launch (cached after that — see
+[Install](#install)). Discover needs network (falls back to the last cached
+registry).
 
 ## License
 
