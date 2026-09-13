@@ -1,13 +1,19 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 const REGISTRY_URL: &str =
     "https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/registry.json";
 const CACHE_MAX_AGE_SECS: u64 = 3600; // 1 hour
+// The live registry is already ~5.6 MB (checked directly against
+// REGISTRY_URL, not guessed) and keeps growing as plugins are added, so
+// this needs real headroom — it's a ceiling against a stalled/hostile
+// response buffering unbounded memory, not a tight bound on today's size.
+const MAX_REGISTRY_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CatalogEntry {
@@ -140,6 +146,35 @@ fn cache_is_fresh(path: &PathBuf) -> bool {
     age.as_secs() < CACHE_MAX_AGE_SECS
 }
 
+// Explicit connect + overall timeouts (the default blocking client has
+// neither, so a stalled connection or a slow-drip response would hang
+// this indefinitely) and a hard cap on how much body we'll ever buffer,
+// enforced while reading rather than after — `resp.text()` has no size
+// limit and would happily buffer an arbitrarily large or slow response
+// in full before we got a chance to reject it.
+fn fetch_registry_bounded() -> Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("cyberplug")
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .build()?;
+
+    let resp = client.get(REGISTRY_URL).send()?;
+    if !resp.status().is_success() {
+        bail!("registry fetch failed: HTTP {}", resp.status());
+    }
+
+    // Read one byte past the cap so an over-limit response is detected
+    // here instead of silently truncated and handed to the JSON parser.
+    let mut buf = Vec::new();
+    resp.take(MAX_REGISTRY_BYTES + 1).read_to_end(&mut buf)?;
+    if buf.len() as u64 > MAX_REGISTRY_BYTES {
+        bail!("registry response exceeded {MAX_REGISTRY_BYTES} bytes");
+    }
+
+    String::from_utf8(buf).context("registry response was not valid UTF-8")
+}
+
 pub fn fetch(force_refresh: bool) -> Result<Vec<Source>> {
     let path = cache_path()?;
 
@@ -151,7 +186,7 @@ pub fn fetch(force_refresh: bool) -> Result<Vec<Source>> {
         return Ok(flatten(reg.sources));
     }
 
-    match reqwest::blocking::get(REGISTRY_URL).and_then(|r| r.text()) {
+    match fetch_registry_bounded() {
         Ok(raw) => {
             let reg: Registry =
                 serde_json::from_str(&raw).context("failed to parse registry.json")?;
