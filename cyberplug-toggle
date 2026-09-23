@@ -83,11 +83,15 @@ build_from_local_source() {
   }
 
   notify "Building cyberplug for $(arch_dir) (first run)…"
-  local build_dir="$PLUGIN_DIR/.cargo-build"
-  rm -rf "$build_dir"
-  if ! CARGO_TARGET_DIR="$build_dir" cargo build --release --locked \
+  # Keep Cargo's high-churn target tree outside the plugin checkout. Omarchy
+  # watches plugin directories recursively and would reload the shell for
+  # every file Cargo creates under an in-tree target directory.
+  local cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/cyberplug"
+  local build_dir="$cache_root/build/$(arch_dir)"
+  local temp_dir="$cache_root/tmp"
+  mkdir -p "$build_dir" "$temp_dir"
+  if ! TMPDIR="$temp_dir" CARGO_TARGET_DIR="$build_dir" cargo build --release --locked \
     --manifest-path "$PLUGIN_DIR/Cargo.toml"; then
-    rm -rf "$build_dir"
     return 1
   fi
 
@@ -101,7 +105,6 @@ build_from_local_source() {
   cp "$build_dir/release/cyberplug" "$tmp_bin"
   chmod +x "$tmp_bin"
   mv -f "$tmp_bin" "$CYBERPLUG_BIN"
-  rm -rf "$build_dir"
 }
 
 ensure_binary() {
