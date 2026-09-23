@@ -5,7 +5,7 @@
 # The bar widget itself does NOT need this: cyberplug-toggle builds and
 # caches its own binary under bin/<arch>/ on first launch. Omarchy users
 # should just do:
-#   omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable
+#   omarchy plugin add https://github.com/cybercore-tech/cyberplug.git --enable
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -40,4 +40,4 @@ if [[ "${1:-}" == "--local-bin" ]]; then
 fi
 
 echo "Done. Omarchy bar widget install:"
-echo "  omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable"
+echo "  omarchy plugin add https://github.com/cybercore-tech/cyberplug.git --enable"

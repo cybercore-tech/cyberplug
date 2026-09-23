@@ -119,7 +119,7 @@ ensure_binary() {
 
   notify "No cyberplug binary for $(arch_dir) and no cargo available to build one. \
 Install Rust (https://rustup.rs), or download a release asset from \
-https://github.com/darkstardevx/cyberplug/releases and place it at: $CYBERPLUG_BIN"
+https://github.com/cybercore-tech/cyberplug/releases and place it at: $CYBERPLUG_BIN"
   return 1
 }
 

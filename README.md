@@ -11,7 +11,7 @@ manager binary.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/darkstardevx/cyberplug.git --enable
+omarchy plugin add https://github.com/cybercore-tech/cyberplug.git --enable
 ```
 
 Click the plug icon on the bar. The first click builds this same checkout's
@@ -96,7 +96,7 @@ Every action shells out to the real `omarchy plugin` CLI. cyberplug reads
 ## Developer install (CLI use outside the bar)
 
 ```bash
-git clone https://github.com/darkstardevx/cyberplug.git
+git clone https://github.com/cybercore-tech/cyberplug.git
 cd cyberplug
 ./install.sh --local-bin
 ```
