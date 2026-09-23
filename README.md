@@ -6,7 +6,7 @@ Omarchy ships a capable `omarchy plugin` CLI. It has no UI. cyberplug is the UI.
 
 ## Install
 
-    git clone https://github.com/darkstardevx/cyberplug.git
+    git clone https://github.com/cybercore-tech/cyberplug.git
     cd cyberplug
     ./install.sh
 
