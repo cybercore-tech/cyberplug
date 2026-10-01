@@ -9,8 +9,7 @@ it privately rather than opening a public issue.
 
 ## Reporting a vulnerability
 
-Email **darkstardevx@gmail.com** (primary) or, as a backup,
-**cybercore.sh@gmail.com**. Include:
+Email **[security@cybercoretech.net](mailto:security@cybercoretech.net)**. Include:
 
 - the affected file/commit and a minimal repro or PoC
 - what you'd expect to happen instead
